@@ -1,23 +1,9 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import {
-  arbitrum,
-  base,
-  mainnet,
-  optimism,
-  polygon,
-  sepolia,
-} from 'wagmi/chains';
+import { polygonAmoy } from 'wagmi/chains';
 
 export const config = getDefaultConfig({
-  appName: 'RainbowKit App',
-  projectId: 'YOUR_PROJECT_ID',
-  chains: [
-    mainnet,
-    polygon,
-    optimism,
-    arbitrum,
-    base,
-    ...(process.env.NEXT_PUBLIC_ENABLE_TESTNETS === 'true' ? [sepolia] : []),
-  ],
+  appName: 'Bank Proxy DEX',
+  projectId: 'YOUR_PROJECT_ID', // O Rainbowkit pede um ID, pode deixar esse padrão por enquanto
+  chains: [polygonAmoy], // <-- Colocamos a Amoy aqui!
   ssr: true,
 });

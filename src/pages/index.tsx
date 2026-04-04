@@ -71,7 +71,6 @@ export default function Home() {
   // 1. LEITURAS (READ)
   // =========================================================
   
-  // Verifica quem é o dono do contrato!
   const { data: contractOwner } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'owner' });
   const isAdmin = isConnected && address && contractOwner === address;
 
@@ -126,13 +125,13 @@ export default function Home() {
 
   // FUNÇÃO UNIVERSAL PARA APROVAR TOKENS
   const handleApproveToken = (amountStr: string, context: string) => {
-    if (!amountStr) return alert("Digite um valor!");
+    if (!amountStr || isNaN(Number(amountStr))) return alert("Digite um valor válido!");
     writeContract({
         address: tokenAddress as `0x${string}`,
         abi: erc20Abi,
         functionName: 'approve',
         args: [CONTRACT_ADDRESS, parseEther(amountStr)],
-        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') // Amoy gas rules
+        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100')
     });
     setTxHistory(prev => [{ id: Date.now(), action: `Aprovação de TKN (${context})`, status: 'Aguardando Assinatura' }, ...prev]);
   };
@@ -147,25 +146,25 @@ export default function Home() {
   };
 
   const handleDeposit = () => {
-    if (!amountBank) return alert("Digite um valor para depositar!");
+    if (!amountBank || isNaN(Number(amountBank))) return alert("Digite um valor válido para depositar!");
     writeContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'deposit', value: parseEther(amountBank), gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') });
     setTxHistory(prev => [{ id: Date.now(), action: `Depósito: ${amountBank} POL`, status: 'Aguardando Assinatura' }, ...prev]);
   };
 
   const handleWithdraw = () => {
-    if (!amountBank) return alert("Digite um valor para sacar!");
+    if (!amountBank || isNaN(Number(amountBank))) return alert("Digite um valor válido para sacar!");
     writeContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'withdraw', args: [parseEther(amountBank)], gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') });
     setTxHistory(prev => [{ id: Date.now(), action: `Saque: ${amountBank} POL`, status: 'Aguardando Assinatura' }, ...prev]);
   };
 
   const handleBuyTokens = () => {
-    if (!amountDex) return alert("Digite um valor para comprar!");
+    if (!amountDex || isNaN(Number(amountDex))) return alert("Digite um valor válido para comprar!");
     writeContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'buyToken', value: parseEther(amountDex), gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') });
     setTxHistory(prev => [{ id: Date.now(), action: `Compra de TKN com ${amountDex} POL`, status: 'Aguardando Assinatura' }, ...prev]);
   };
 
   const handleSellTokens = () => {
-    if (!amountDex) return alert("Digite a quantidade de tokens para vender!");
+    if (!amountDex || isNaN(Number(amountDex))) return alert("Digite uma quantidade válida de tokens para vender!");
     writeContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'sellToken', args: [parseEther(amountDex)], gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') });
     setTxHistory(prev => [{ id: Date.now(), action: `Venda de ${amountDex} TKN`, status: 'Aguardando Assinatura' }, ...prev]);
   };
@@ -179,13 +178,13 @@ export default function Home() {
 
 
   // =========================================================
-  // CALCULADORAS DE BOTÕES INTELIGENTES
+  // CALCULADORAS BLINDADAS CONTRA ERROS (BUG FIX)
   // =========================================================
-  // Verifica se o usuário (cliente) já aprovou a quantidade que ele digitou no input
-  const isDexApprovalNeeded = amountDex && (tokenAllowance as bigint || BigInt(0)) < parseEther(amountDex || '0');
-  
-  // Verifica se o admin já aprovou a quantidade que ele digitou no input de Injetar Liquidez
-  const isAdminApprovalNeeded = adminForm.tokenAmount && (tokenAllowance as bigint || BigInt(0)) < parseEther(adminForm.tokenAmount || '0');
+  const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : BigInt(0);
+  const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : BigInt(0);
+
+  const isDexApprovalNeeded = safeAmountDex > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAmountDex;
+  const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
 
 
   // =========================================================================
@@ -197,7 +196,10 @@ export default function Home() {
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px]"></div>
           <div className="z-10 flex flex-col items-center text-center p-8">
               <div className="mb-6 p-4 bg-white/5 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
-                  <h1 className="text-6xl font-black bg-gradient-to-br from-blue-400 to-indigo-600 bg-clip-text text-transparent tracking-tighter">PROXY<span className="text-white">BANK</span></h1>
+                  {/* TÍTULO NOVO DA LANDING PAGE AQUI 👇 */}
+                  <h1 className="text-6xl font-black bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent tracking-tighter drop-shadow-[0_0_20px_rgba(56,189,248,0.4)] hover:scale-105 transition-transform cursor-default">
+                      BANK <span className="text-white drop-shadow-none">PROXY</span>
+                  </h1>
               </div>
               <p className="mb-10 text-xl text-gray-400 font-light max-w-lg">
                   O seu portal definitivo para o futuro de DeFi. Conecte sua carteira para acessar cofres seguros e câmbio descentralizado.
@@ -219,7 +221,10 @@ export default function Home() {
       {/* MENU LATERAL */}
       <aside className="w-72 bg-[#12161F] border-r border-gray-800/60 hidden lg:flex flex-col shadow-2xl z-20">
          <div className="h-24 flex items-center justify-center border-b border-gray-800/60">
-            <h1 className="text-2xl font-black tracking-widest text-white">P<span className="text-blue-500">R</span>OXY</h1>
+            {/* TÍTULO NOVO DO MENU LATERAL AQUI 👇 */}
+            <h1 className="text-2xl font-black tracking-widest bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(56,189,248,0.3)] cursor-default">
+                BANK PROXY
+            </h1>
          </div>
          <nav className="flex-1 p-6 space-y-4">
             <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-4 p-4 rounded-xl font-semibold transition-all ${activeTab === 'dashboard' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
@@ -255,7 +260,9 @@ export default function Home() {
         <div className="p-6 md:p-10 max-w-7xl mx-auto w-full grid gap-8 grid-cols-1 xl:grid-cols-3">
             <div className="xl:col-span-2 space-y-8">
                 
+                {/* ============================== */}
                 {/* ABA 1: DASHBOARD */}
+                {/* ============================== */}
                 {activeTab === 'dashboard' && (
                     <div className="space-y-8 animate-fade-in">
                         
@@ -289,6 +296,8 @@ export default function Home() {
                         </div>
 
                         <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
+                            
+                            {/* SALDO DO BANCO */}
                             <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col justify-between">
                                 <div>
                                     <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Saldo em Caixa</h3>
@@ -310,6 +319,7 @@ export default function Home() {
                                 </div>
                             </section>
 
+                            {/* CÂMBIO RÁPIDO (DEX) */}
                             <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl relative flex flex-col justify-between">
                                 <div>
                                     <div className="absolute top-4 right-4 bg-blue-600/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full border border-blue-500/30">DEX V6</div>
@@ -331,11 +341,36 @@ export default function Home() {
                                 </div>
 
                                 <div className="space-y-4 mt-auto">
-                                    <input type="number" placeholder="Quantidade..." value={amountDex} onChange={(e) => setAmountDex(e.target.value)} className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white outline-none focus:border-blue-500 text-center text-xl font-mono" />
+                                    <div className="flex flex-col gap-2">
+                                        <input 
+                                            type="number" 
+                                            placeholder="Quantidade..." 
+                                            value={amountDex}
+                                            onChange={(e) => setAmountDex(e.target.value)}
+                                            className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white outline-none focus:border-blue-500 text-center text-xl font-mono" 
+                                        />
+                                        
+                                        {/* A MÁGICA DA CONVERSÃO EM TEMPO REAL AQUI */}
+                                        <div className="flex justify-between px-2 text-[11px] font-medium min-h-[16px]">
+                                            {amountDex && !isNaN(Number(amountDex)) && Number(amountDex) > 0 && exchangeRate ? (
+                                                <>
+                                                    <span className="text-indigo-400">
+                                                        Comprando: {(Number(amountDex) * Number(exchangeRate as bigint)).toLocaleString()} TKN
+                                                    </span>
+                                                    <span className="text-pink-400">
+                                                        Vendendo: {(Number(amountDex) / Number(exchangeRate as bigint)).toFixed(4)} POL
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <span></span> 
+                                            )}
+                                        </div>
+                                    </div>
+
                                     <div className="flex gap-4">
                                         <button onClick={handleBuyTokens} disabled={isPending} className="flex-1 bg-indigo-600/20 border border-indigo-500 text-indigo-300 p-4 rounded-xl font-bold hover:bg-indigo-600/30 disabled:opacity-50">Comprar</button>
                                         
-                                        {/* BOTÃO INTELIGENTE DE VENDER (APPROVE -> VENDER) */}
+                                        {/* BOTÃO INTELIGENTE DE VENDER */}
                                         {isDexApprovalNeeded ? (
                                             <button onClick={() => handleApproveToken(amountDex, 'Vender TKN')} disabled={isPending} className="flex-1 bg-orange-600/20 border border-orange-500 text-orange-300 p-4 rounded-xl font-bold hover:bg-orange-600/30 transition disabled:opacity-50 shadow-[0_0_15px_rgba(249,115,22,0.1)]">
                                                 1º Aprovar
@@ -345,7 +380,6 @@ export default function Home() {
                                                 Vender
                                             </button>
                                         )}
-                                        
                                     </div>
                                 </div>
                             </section>
@@ -353,7 +387,9 @@ export default function Home() {
                     </div>
                 )}
 
+                {/* ============================== */}
                 {/* ABA 2: MEUS COFRES */}
+                {/* ============================== */}
                 {activeTab === 'cofres' && (
                     <div className="space-y-8 animate-fade-in">
                         <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60">
@@ -384,7 +420,9 @@ export default function Home() {
                     </div>
                 )}
 
+                {/* ============================== */}
                 {/* ABA 3: PAINEL ADMIN */}
+                {/* ============================== */}
                 {activeTab === 'admin' && isAdmin && (
                     <div className="space-y-6 animate-fade-in">
                         {Boolean(isPaused) && (
@@ -395,6 +433,7 @@ export default function Home() {
                         )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
                             <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800">
                                 <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">💱 Câmbio e Token</h3>
                                 <div className="space-y-4">
@@ -491,7 +530,9 @@ export default function Home() {
 
             </div>
 
+            {/* ========================================================================= */}
             {/* SIDEBAR DE HISTÓRICO GERAL */}
+            {/* ========================================================================= */}
             <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 h-[700px] flex flex-col sticky top-28">
                 <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2 border-b border-gray-800/60 pb-4">📡 Terminal de Rede</h3>
                 <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">

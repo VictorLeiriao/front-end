@@ -180,11 +180,11 @@ export default function Home() {
   // =========================================================
   // CALCULADORAS BLINDADAS CONTRA ERROS (BUG FIX)
   // =========================================================
-  const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : BigInt(0);
-  const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : BigInt(0);
+  const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : 0n;
+  const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : 0n;
 
-  const isDexApprovalNeeded = safeAmountDex > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAmountDex;
-  const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
+  const isDexApprovalNeeded = safeAmountDex > 0n && (tokenAllowance as bigint || 0n) < safeAmountDex;
+  const isAdminApprovalNeeded = safeAdminTokenAmount > 0n && (tokenAllowance as bigint || 0n) < safeAdminTokenAmount;
 
 
   // =========================================================================
@@ -350,15 +350,15 @@ export default function Home() {
                                             className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white outline-none focus:border-blue-500 text-center text-xl font-mono" 
                                         />
                                         
-                                        {/* A MÁGICA DA CONVERSÃO EM TEMPO REAL AQUI */}
-                                        <div className="flex justify-between px-2 text-[11px] font-medium min-h-[16px]">
+                                        {/* A MÁGICA DA CONVERSÃO SUPER EXPLICATIVA */}
+                                        <div className="flex flex-col px-2 text-[11px] font-medium min-h-[32px] gap-1 mt-1">
                                             {amountDex && !isNaN(Number(amountDex)) && Number(amountDex) > 0 && exchangeRate ? (
                                                 <>
                                                     <span className="text-indigo-400">
-                                                        Comprando: {(Number(amountDex) * Number(exchangeRate as bigint)).toLocaleString()} TKN
+                                                        🟢 Ao Comprar: Paga <b>{amountDex} POL</b> ➔ Recebe <b>{(Number(amountDex) * Number(exchangeRate as bigint)).toLocaleString()} TKN</b>
                                                     </span>
                                                     <span className="text-pink-400">
-                                                        Vendendo: {(Number(amountDex) / Number(exchangeRate as bigint)).toFixed(4)} POL
+                                                        🔴 Ao Vender: Paga <b>{amountDex} TKN</b> ➔ Recebe <b>{(Number(amountDex) / Number(exchangeRate as bigint)).toFixed(4)} POL</b>
                                                     </span>
                                                 </>
                                             ) : (

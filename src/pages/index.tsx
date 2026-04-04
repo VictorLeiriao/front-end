@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
-import { formatEther } from 'viem';
+import { formatEther, parseGwei, parseEther } from 'viem';
 import bankAbi from '../abi/BankV6.json';
 
 const CONTRACT_ADDRESS = '0x5f01cCFECe767EF5F72882F3D9F67274190eE2C7';
+
+// Adicione isso aqui: O tradutor para ler o Token!
+const erc20Abi = [
+  {
+    "inputs": [{ "internalType": "address", "name": "account", "type": "address" }],
+    "name": "balanceOf",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
 
 type TxLog = {
   id: number;
@@ -19,6 +30,8 @@ export default function Home() {
   const publicClient = usePublicClient();
   const [formData, setFormData] = useState({ name: '', age: '', country: '' });
   const [txHistory, setTxHistory] = useState<TxLog[]>([]);
+  const [amountBank, setAmountBank] = useState(''); // Para o input de Depositar/Sacar
+  const [amountDex, setAmountDex] = useState('');   // Para o input de Comprar/Vender
 
   // 1. LER DADOS
   const { data: isWhitelisted } = useReadContract({
@@ -37,6 +50,11 @@ export default function Home() {
     query: { enabled: !!address }
   });
 
+  // NOSSOS DADOS DINÂMICOS DA DEX E DO BANCO:
+  const { data: withdrawFee } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getWithdrawFee' });
+  const { data: exchangeRate } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'feeExchange' });
+  const { data: tokenStock } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getStockTokens' });
+
   // 2. ESCREVER DADOS
   const { writeContract, data: hash, isPending, error: writeError } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
@@ -51,23 +69,30 @@ export default function Home() {
   const handleRegister = async () => {
     if (!formData.name || !formData.age || !formData.country) return alert("Preencha todos os campos!");
     try {
-        await publicClient?.simulateContract({
-            address: CONTRACT_ADDRESS,
-            abi: bankAbi.abi,
-            functionName: 'registerRequest',
-            args: [formData.name, BigInt(formData.age), formData.country],
+        await publicClient?.simulateContract({ 
+            address: CONTRACT_ADDRESS, 
+            abi: bankAbi.abi, 
+            functionName: 'registerRequest', 
+            args: [formData.name, BigInt(formData.age), formData.country], 
             account: address,
+            gas: BigInt(500000), 
+            maxPriorityFeePerGas: parseGwei('30'), 
+            maxFeePerGas: parseGwei('100'),        
         });
+
         setTxHistory(prev => [{ id: Date.now(), action: 'Cadastro (KYC)', status: 'Aguardando Assinatura' }, ...prev]);
-        writeContract({
-            address: CONTRACT_ADDRESS,
-            abi: bankAbi.abi,
-            functionName: 'registerRequest',
+        
+        writeContract({ 
+            address: CONTRACT_ADDRESS, 
+            abi: bankAbi.abi, 
+            functionName: 'registerRequest', 
             args: [formData.name, BigInt(formData.age), formData.country],
-        });
+            gas: BigInt(500000), 
+            maxPriorityFeePerGas: parseGwei('30'), 
+            maxFeePerGas: parseGwei('100'),        
+           });
     } catch (error: any) {
-        const mensagemErro = getErrorMessage(error);
-        setTxHistory(prev => [{ id: Date.now(), action: 'Cadastro (KYC)', status: 'Erro', errorMessage: mensagemErro }, ...prev]);
+        setTxHistory(prev => [{ id: Date.now(), action: 'Cadastro (KYC)', status: 'Erro', errorMessage: getErrorMessage(error) }, ...prev]);
     }
   };
 
@@ -85,6 +110,50 @@ export default function Home() {
     });
   }, [isPending, isConfirming, isConfirmed, writeError, hash]);
 
+  const handleDeposit = () => {
+    if (!amountBank) return alert("Digite um valor para depositar!");
+    writeContract({
+        address: CONTRACT_ADDRESS, abi: bankAbi.abi,
+        functionName: 'deposit',
+        value: parseEther(amountBank), 
+        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100')
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Depósito: ${amountBank} POL`, status: 'Aguardando Assinatura' }, ...prev]);
+  };
+
+  const handleWithdraw = () => {
+    if (!amountBank) return alert("Digite um valor para sacar!");
+    writeContract({
+        address: CONTRACT_ADDRESS, abi: bankAbi.abi,
+        functionName: 'withdraw',
+        args: [parseEther(amountBank)], 
+        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100')
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Saque: ${amountBank} POL`, status: 'Aguardando Assinatura' }, ...prev]);
+  };
+
+  const handleBuyTokens = () => {
+    if (!amountDex) return alert("Digite um valor para comprar!");
+    writeContract({
+        address: CONTRACT_ADDRESS, abi: bankAbi.abi,
+        functionName: 'buyToken', 
+        value: parseEther(amountDex), 
+        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100')
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Compra de TKN com ${amountDex} POL`, status: 'Aguardando Assinatura' }, ...prev]);
+  };
+
+  const handleSellTokens = () => {
+    if (!amountDex) return alert("Digite a quantidade de tokens para vender!");
+    writeContract({
+        address: CONTRACT_ADDRESS, abi: bankAbi.abi,
+        functionName: 'sellToken', 
+        args: [parseEther(amountDex)], 
+        gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100')
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Venda de ${amountDex} TKN`, status: 'Aguardando Assinatura' }, ...prev]);
+  };
+
 
   // =========================================================================
   // TELA 1: LANDING PAGE (Desconectado)
@@ -92,9 +161,7 @@ export default function Home() {
   if (!isConnected) {
     return (
       <main className="flex flex-col items-center justify-center min-h-screen bg-[#0B0E14] text-white relative overflow-hidden">
-        {/* Efeito de brilho de fundo */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px]"></div>
-        
         <div className="z-10 flex flex-col items-center text-center p-8">
             <div className="mb-6 p-4 bg-white/5 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
                 <h1 className="text-6xl font-black bg-gradient-to-br from-blue-400 to-indigo-600 bg-clip-text text-transparent tracking-tighter">
@@ -160,9 +227,7 @@ export default function Home() {
                 
                 {/* STATUS DA CONTA (KYC) */}
                 <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 relative overflow-hidden">
-                    {/* Efeito de borda luminosa sutil */}
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-transparent"></div>
-                    
                     <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2">
                         🛡️ Verificação de Identidade
                     </h3>
@@ -199,39 +264,76 @@ export default function Home() {
                     )}
                 </div>
 
-                {/* DOIS CARDS LADO A LADO (SALDO & DEX) */}
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale transition-all' : ''}`}>
+                {/* BLOCO 2 AQUI: SALDO E DEX ATUALIZADOS! */}
+                <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
                     
-                    {/* SALDO DO BANCO */}
-                    <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 flex flex-col justify-between hover:border-gray-600 transition-colors">
+                    {/* Saldo e Conta Corrente */}
+                    <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col justify-between">
                         <div>
-                            <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-2">Conta Corrente</h3>
-                            <p className="text-5xl font-black font-mono tracking-tighter text-white">
-                                {bankBalance ? formatEther(bankBalance as bigint) : '0.00'} 
-                                <span className="text-lg text-gray-500 ml-2 font-sans tracking-normal">POL</span>
+                            <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Saldo em Caixa</h3>
+                            <p className="text-5xl font-black font-mono text-white mb-6">
+                                {bankBalance ? formatEther(bankBalance as bigint) : '0.00'} <span className="text-xl text-gray-500">POL</span>
                             </p>
                         </div>
-                        <div className="mt-8 grid grid-cols-2 gap-3">
-                            <button className="bg-white hover:bg-gray-200 text-black p-4 rounded-xl font-bold transition-colors">Depositar</button>
-                            <button className="bg-transparent border border-gray-700 hover:bg-gray-800 p-4 rounded-xl font-bold transition-colors text-white">Sacar</button>
+                        
+                        <div className="space-y-4 mt-auto">
+                            <input 
+                                type="number" 
+                                placeholder="0.00 POL" 
+                                value={amountBank}
+                                onChange={(e) => setAmountBank(e.target.value)}
+                                className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
+                            />
+                            <div className="flex gap-4">
+                                <button onClick={handleDeposit} disabled={isPending} className="flex-1 bg-white text-black p-4 rounded-xl font-bold hover:bg-gray-200 transition disabled:opacity-50">Depositar</button>
+                                <button onClick={handleWithdraw} disabled={isPending} className="flex-1 bg-transparent border border-gray-600 text-white p-4 rounded-xl font-bold hover:bg-gray-800 transition disabled:opacity-50">Sacar</button>
+                            </div>
+                            {/* AVISO DA TAXA DE SAQUE (Dinâmico do Contrato) */}
+                            <div className="text-center pt-2">
+                                <span className="text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
+                                    ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">
+                                        {withdrawFee ? formatEther(withdrawFee as bigint) : '0.00'} POL
+                                    </span>
+                                </span>
+                            </div>
                         </div>
-                    </div>
+                    </section>
 
-                    {/* CORRETORA (DEX) */}
-                    <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 relative hover:border-gray-600 transition-colors">
-                        <div className="absolute -top-3 right-6 bg-blue-600 text-xs font-bold px-3 py-1 rounded-full shadow-lg shadow-blue-500/50">V6 Engine</div>
-                        <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6">Câmbio Nativo</h3>
-                        
-                        <div className="bg-[#0B0E14] rounded-2xl p-4 mb-6 flex justify-between items-center border border-gray-800">
-                            <span className="text-gray-400 font-medium">Taxa Atual</span>
-                            <span className="font-bold text-blue-400">1 POL = 100 TKN</span>
+                    {/* DEX (Câmbio) */}
+                    <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl relative flex flex-col justify-between">
+                        <div>
+                            <div className="absolute top-4 right-4 bg-blue-600/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full border border-blue-500/30">DEX V6</div>
+                            <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Câmbio Rápido</h3>
+                            
+                            {/* INFORMAÇÕES DINÂMICAS DA DEX */}
+                            <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800 flex flex-col gap-2 mb-6 mt-2">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-400 font-medium text-sm">Cotação:</span>
+                                    <span className="text-blue-400 font-bold">1 POL = {exchangeRate ? String(exchangeRate) : '...'} TKN</span>
+                                </div>
+                                <div className="flex justify-between items-center border-t border-gray-800/60 pt-2">
+                                    <span className="text-gray-500 font-medium text-xs">Estoque do Banco:</span>
+                                    <span className="text-gray-300 font-mono text-xs">
+                                        {tokenStock ? Number(formatEther(tokenStock as bigint)).toFixed(2) : '0.00'} TKN
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        
-                        <div className="grid grid-cols-2 gap-3">
-                            <button className="bg-indigo-600/20 border border-indigo-500 hover:bg-indigo-600/40 text-indigo-300 p-4 rounded-xl font-bold transition-all shadow-[0_0_20px_rgba(79,70,229,0.15)] hover:shadow-[0_0_20px_rgba(79,70,229,0.3)]">Comprar TKN</button>
-                            <button className="bg-pink-600/20 border border-pink-500 hover:bg-pink-600/40 text-pink-300 p-4 rounded-xl font-bold transition-all shadow-[0_0_20px_rgba(219,39,119,0.15)] hover:shadow-[0_0_20px_rgba(219,39,119,0.3)]">Vender TKN</button>
+
+                        <div className="space-y-4 mt-auto">
+                            <input 
+                                type="number" 
+                                placeholder="Quantidade..." 
+                                value={amountDex}
+                                onChange={(e) => setAmountDex(e.target.value)}
+                                className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
+                            />
+                            <div className="flex gap-4">
+                                <button onClick={handleBuyTokens} disabled={isPending} className="flex-1 bg-indigo-600/20 border border-indigo-500 text-indigo-300 p-4 rounded-xl font-bold hover:bg-indigo-600/30 transition shadow-[0_0_15px_rgba(79,70,229,0.1)] disabled:opacity-50">Comprar</button>
+                                <button onClick={handleSellTokens} disabled={isPending} className="flex-1 bg-pink-600/20 border border-pink-500 text-pink-300 p-4 rounded-xl font-bold hover:bg-pink-600/30 transition shadow-[0_0_15px_rgba(219,39,119,0.1)] disabled:opacity-50">Vender</button>
+                            </div>
                         </div>
-                    </div>
+                    </section>
 
                 </div>
             </div>

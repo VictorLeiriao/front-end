@@ -33,6 +33,8 @@ export default function Home() {
   const [amountBank, setAmountBank] = useState(''); // Para o input de Depositar/Sacar
   const [amountDex, setAmountDex] = useState('');   // Para o input de Comprar/Vender
 
+  const [activeTab, setActiveTab] = useState('dashboard'); // Controla qual tela aparece
+
   // 1. LER DADOS
   const { data: isWhitelisted } = useReadContract({
     address: CONTRACT_ADDRESS,
@@ -54,6 +56,19 @@ export default function Home() {
   const { data: withdrawFee } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getWithdrawFee' });
   const { data: exchangeRate } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'feeExchange' });
   const { data: tokenStock } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getStockTokens' });
+
+  // NOSSAS DUAS NOVAS LEITURAS PARA OS COFRES:
+  // 1. Pega o endereço do Token cadastrado no Banco
+  const { data: tokenAddress } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'tokenExchange' });
+  
+  // 2. Lê quantos Tokens a pessoa tem na MetaMask dela
+  const { data: userTokenBalance } = useReadContract({
+      address: tokenAddress as `0x${string}`,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [address],
+      query: { enabled: !!tokenAddress && !!address }
+  });
 
   // 2. ESCREVER DADOS
   const { writeContract, data: hash, isPending, error: writeError } = useWriteContract();
@@ -193,12 +208,18 @@ export default function Home() {
             </h1>
          </div>
          <nav className="flex-1 p-6 space-y-4">
-            <a href="#" className="flex items-center gap-4 text-blue-400 bg-blue-500/10 p-4 rounded-xl font-semibold border border-blue-500/20 transition-all">
+            <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`w-full flex items-center gap-4 p-4 rounded-xl font-semibold transition-all ${activeTab === 'dashboard' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            >
                 📊 <span>Dashboard</span>
-            </a>
-            <a href="#" className="flex items-center gap-4 text-gray-400 hover:text-white hover:bg-white/5 p-4 rounded-xl font-medium transition-all cursor-not-allowed opacity-50">
+            </button>
+            <button 
+                onClick={() => setActiveTab('cofres')}
+                className={`w-full flex items-center gap-4 p-4 rounded-xl font-semibold transition-all ${activeTab === 'cofres' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}
+            >
                 🏦 <span>Meus Cofres</span>
-            </a>
+            </button>
             <a href="#" className="flex items-center gap-4 text-gray-400 hover:text-white hover:bg-white/5 p-4 rounded-xl font-medium transition-all cursor-not-allowed opacity-50">
                 📈 <span>Gráficos DEX</span>
             </a>
@@ -225,117 +246,158 @@ export default function Home() {
             
             <div className="xl:col-span-2 space-y-8">
                 
-                {/* STATUS DA CONTA (KYC) */}
-                <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-transparent"></div>
-                    <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2">
-                        🛡️ Verificação de Identidade
-                    </h3>
-                    
-                    {isWhitelisted ? (
-                        <div className="flex items-center gap-5 bg-green-500/10 p-6 rounded-2xl border border-green-500/20">
-                            <div className="bg-green-500/20 p-4 rounded-full text-3xl shadow-[0_0_15px_rgba(34,197,94,0.3)]">✅</div>
-                            <div>
-                                <p className="font-bold text-xl text-white tracking-tight">Acesso VIP Liberado</p>
-                                <p className="text-sm text-green-300 mt-1">Conta aprovada. Todos os limites de cofre e DEX disponíveis.</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-6">
-                            <div className="bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-yellow-300 text-sm flex gap-3">
-                                <span>⚠️</span>
-                                <p>Sua conta está restrita. Conclua o registro no Smart Contract para operar.</p>
-                            </div>
+                {/* LÓGICA DE ABAS (DASHBOARD VS COFRES) */}
+                {activeTab === 'dashboard' ? (
+                    <>
+                        {/* STATUS DA CONTA (KYC) */}
+                        <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-transparent"></div>
+                            <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2">
+                                🛡️ Verificação de Identidade
+                            </h3>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <input placeholder="Nome Completo" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, name: e.target.value})} />
-                                <input placeholder="Idade" type="number" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, age: e.target.value})} />
-                                <input placeholder="País" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, country: e.target.value})} />
-                            </div>
-                            
-                            <button 
-                                onClick={handleRegister}
-                                disabled={isPending || isConfirming}
-                                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-3 text-lg"
-                            >
-                                {isPending ? "✍️ Assine na sua Carteira..." : isConfirming ? "⏳ Validando na Blockchain..." : "Enviar Registro Oficial"}
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* BLOCO 2 AQUI: SALDO E DEX ATUALIZADOS! */}
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
-                    
-                    {/* Saldo e Conta Corrente */}
-                    <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col justify-between">
-                        <div>
-                            <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Saldo em Caixa</h3>
-                            <p className="text-5xl font-black font-mono text-white mb-6">
-                                {bankBalance ? formatEther(bankBalance as bigint) : '0.00'} <span className="text-xl text-gray-500">POL</span>
-                            </p>
-                        </div>
-                        
-                        <div className="space-y-4 mt-auto">
-                            <input 
-                                type="number" 
-                                placeholder="0.00 POL" 
-                                value={amountBank}
-                                onChange={(e) => setAmountBank(e.target.value)}
-                                className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
-                            />
-                            <div className="flex gap-4">
-                                <button onClick={handleDeposit} disabled={isPending} className="flex-1 bg-white text-black p-4 rounded-xl font-bold hover:bg-gray-200 transition disabled:opacity-50">Depositar</button>
-                                <button onClick={handleWithdraw} disabled={isPending} className="flex-1 bg-transparent border border-gray-600 text-white p-4 rounded-xl font-bold hover:bg-gray-800 transition disabled:opacity-50">Sacar</button>
-                            </div>
-                            {/* AVISO DA TAXA DE SAQUE (Dinâmico do Contrato) */}
-                            <div className="text-center pt-2">
-                                <span className="text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
-                                    ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">
-                                        {withdrawFee ? formatEther(withdrawFee as bigint) : '0.00'} POL
-                                    </span>
-                                </span>
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* DEX (Câmbio) */}
-                    <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl relative flex flex-col justify-between">
-                        <div>
-                            <div className="absolute top-4 right-4 bg-blue-600/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full border border-blue-500/30">DEX V6</div>
-                            <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Câmbio Rápido</h3>
-                            
-                            {/* INFORMAÇÕES DINÂMICAS DA DEX */}
-                            <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800 flex flex-col gap-2 mb-6 mt-2">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-gray-400 font-medium text-sm">Cotação:</span>
-                                    <span className="text-blue-400 font-bold">1 POL = {exchangeRate ? String(exchangeRate) : '...'} TKN</span>
+                            {isWhitelisted ? (
+                                <div className="flex items-center gap-5 bg-green-500/10 p-6 rounded-2xl border border-green-500/20">
+                                    <div className="bg-green-500/20 p-4 rounded-full text-3xl shadow-[0_0_15px_rgba(34,197,94,0.3)]">✅</div>
+                                    <div>
+                                        <p className="font-bold text-xl text-white tracking-tight">Acesso VIP Liberado</p>
+                                        <p className="text-sm text-green-300 mt-1">Conta aprovada. Todos os limites de cofre e DEX disponíveis.</p>
+                                    </div>
                                 </div>
-                                <div className="flex justify-between items-center border-t border-gray-800/60 pt-2">
-                                    <span className="text-gray-500 font-medium text-xs">Estoque do Banco:</span>
-                                    <span className="text-gray-300 font-mono text-xs">
-                                        {tokenStock ? Number(formatEther(tokenStock as bigint)).toFixed(2) : '0.00'} TKN
-                                    </span>
+                            ) : (
+                                <div className="space-y-6">
+                                    <div className="bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-yellow-300 text-sm flex gap-3">
+                                        <span>⚠️</span>
+                                        <p>Sua conta está restrita. Conclua o registro no Smart Contract para operar.</p>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <input placeholder="Nome Completo" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, name: e.target.value})} />
+                                        <input placeholder="Idade" type="number" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, age: e.target.value})} />
+                                        <input placeholder="País" className="w-full p-4 rounded-xl bg-[#0B0E14] border border-gray-700 focus:outline-none focus:border-blue-500 transition-colors text-white placeholder-gray-600 font-medium" onChange={(e) => setFormData({...formData, country: e.target.value})} />
+                                    </div>
+                                    
+                                    <button 
+                                        onClick={handleRegister}
+                                        disabled={isPending || isConfirming}
+                                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-blue-900/50 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-3 text-lg"
+                                    >
+                                        {isPending ? "✍️ Assine na sua Carteira..." : isConfirming ? "⏳ Validando na Blockchain..." : "Enviar Registro Oficial"}
+                                    </button>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
-                        <div className="space-y-4 mt-auto">
-                            <input 
-                                type="number" 
-                                placeholder="Quantidade..." 
-                                value={amountDex}
-                                onChange={(e) => setAmountDex(e.target.value)}
-                                className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
-                            />
-                            <div className="flex gap-4">
-                                <button onClick={handleBuyTokens} disabled={isPending} className="flex-1 bg-indigo-600/20 border border-indigo-500 text-indigo-300 p-4 rounded-xl font-bold hover:bg-indigo-600/30 transition shadow-[0_0_15px_rgba(79,70,229,0.1)] disabled:opacity-50">Comprar</button>
-                                <button onClick={handleSellTokens} disabled={isPending} className="flex-1 bg-pink-600/20 border border-pink-500 text-pink-300 p-4 rounded-xl font-bold hover:bg-pink-600/30 transition shadow-[0_0_15px_rgba(219,39,119,0.1)] disabled:opacity-50">Vender</button>
+                        {/* SALDO E DEX */}
+                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
+                            
+                            {/* Saldo e Conta Corrente */}
+                            <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col justify-between">
+                                <div>
+                                    <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Saldo em Caixa</h3>
+                                    <p className="text-5xl font-black font-mono text-white mb-6">
+                                        {bankBalance ? formatEther(bankBalance as bigint) : '0.00'} <span className="text-xl text-gray-500">POL</span>
+                                    </p>
+                                </div>
+                                
+                                <div className="space-y-4 mt-auto">
+                                    <input 
+                                        type="number" 
+                                        placeholder="0.00 POL" 
+                                        value={amountBank}
+                                        onChange={(e) => setAmountBank(e.target.value)}
+                                        className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
+                                    />
+                                    <div className="flex gap-4">
+                                        <button onClick={handleDeposit} disabled={isPending} className="flex-1 bg-white text-black p-4 rounded-xl font-bold hover:bg-gray-200 transition disabled:opacity-50">Depositar</button>
+                                        <button onClick={handleWithdraw} disabled={isPending} className="flex-1 bg-transparent border border-gray-600 text-white p-4 rounded-xl font-bold hover:bg-gray-800 transition disabled:opacity-50">Sacar</button>
+                                    </div>
+                                    <div className="text-center pt-2">
+                                        <span className="text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
+                                            ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">
+                                                {withdrawFee ? formatEther(withdrawFee as bigint) : '0.00'} POL
+                                            </span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* DEX (Câmbio) */}
+                            <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl relative flex flex-col justify-between">
+                                <div>
+                                    <div className="absolute top-4 right-4 bg-blue-600/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full border border-blue-500/30">DEX V6</div>
+                                    <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Câmbio Rápido</h3>
+                                    
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800 flex flex-col gap-2 mb-6 mt-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-gray-400 font-medium text-sm">Cotação:</span>
+                                            <span className="text-blue-400 font-bold">1 POL = {exchangeRate ? String(exchangeRate) : '...'} TKN</span>
+                                        </div>
+                                        <div className="flex justify-between items-center border-t border-gray-800/60 pt-2">
+                                            <span className="text-gray-500 font-medium text-xs">Estoque do Banco:</span>
+                                            <span className="text-gray-300 font-mono text-xs">
+                                                {tokenStock ? Number(formatEther(tokenStock as bigint)).toFixed(2) : '0.00'} TKN
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 mt-auto">
+                                    <input 
+                                        type="number" 
+                                        placeholder="Quantidade..." 
+                                        value={amountDex}
+                                        onChange={(e) => setAmountDex(e.target.value)}
+                                        className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white focus:border-blue-500 outline-none text-center text-xl font-mono"
+                                    />
+                                    <div className="flex gap-4">
+                                        <button onClick={handleBuyTokens} disabled={isPending} className="flex-1 bg-indigo-600/20 border border-indigo-500 text-indigo-300 p-4 rounded-xl font-bold hover:bg-indigo-600/30 transition shadow-[0_0_15px_rgba(79,70,229,0.1)] disabled:opacity-50">Comprar</button>
+                                        <button onClick={handleSellTokens} disabled={isPending} className="flex-1 bg-pink-600/20 border border-pink-500 text-pink-300 p-4 rounded-xl font-bold hover:bg-pink-600/30 transition shadow-[0_0_15px_rgba(219,39,119,0.1)] disabled:opacity-50">Vender</button>
+                                    </div>
+                                </div>
+                            </section>
+
+                        </div>
+                    </>
+                ) : (
+                    <div className="space-y-8 animate-fade-in">
+                        <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60">
+                            <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-8 border-b border-gray-800/60 pb-4">Seus Ativos e Cofres</h3>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                
+                                {/* COFRE DE POL (No Banco) */}
+                                <div className="bg-[#0B0E14] p-6 rounded-2xl border border-gray-800 relative overflow-hidden group hover:border-blue-500/50 transition-colors">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
+                                    <h4 className="text-gray-400 font-medium text-sm mb-2">Depositado no Banco</h4>
+                                    <div className="flex items-end gap-2">
+                                        <p className="text-4xl font-black font-mono text-white z-10">
+                                            {bankBalance ? Number(formatEther(bankBalance as bigint)).toFixed(4) : '0.00'}
+                                        </p>
+                                        <span className="text-blue-500 font-bold mb-1 z-10">POL</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-4 z-10">Rede Polygon Amoy</p>
+                                </div>
+
+                                {/* COFRE DE TKN (Na Carteira) */}
+                                <div className="bg-[#0B0E14] p-6 rounded-2xl border border-gray-800 relative overflow-hidden group hover:border-pink-500/50 transition-colors">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-pink-600/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
+                                    <h4 className="text-gray-400 font-medium text-sm mb-2">Tokens na Carteira</h4>
+                                    <div className="flex items-end gap-2">
+                                        <p className="text-4xl font-black font-mono text-white z-10">
+                                            {userTokenBalance ? Number(formatEther(userTokenBalance as bigint)).toFixed(2) : '0.00'}
+                                        </p>
+                                        <span className="text-pink-500 font-bold mb-1 z-10">TKN</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-4 text-truncate w-full block overflow-hidden text-ellipsis whitespace-nowrap z-10" title={tokenAddress ? String(tokenAddress) : ''}>
+                                        Contrato: {tokenAddress ? String(tokenAddress) : 'Não carregado'}
+                                    </p>
+                                </div>
+
                             </div>
                         </div>
-                    </section>
-
-                </div>
+                    </div>
+                )}
             </div>
 
             {/* SIDEBAR DE HISTÓRICO */}

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export', // <-- MÁGICA ADICIONADA AQUI
   reactStrictMode: true,
   webpack: (config) => {
     config.externals.push('pino-pretty', 'lokijs', 'encoding');

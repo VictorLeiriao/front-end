@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 import { formatEther, parseGwei, parseEther } from 'viem';
-import bankAbi from '../abi/BankV6.json';
+import bankAbi from '../abi/BankV7.json';
 
 const CONTRACT_ADDRESS = '0x5f01cCFECe767EF5F72882F3D9F67274190eE2C7';
 
@@ -75,6 +75,10 @@ export default function Home() {
   const isAdmin = isConnected && address && contractOwner === address;
 
   const { data: isWhitelisted } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isWhitelisted', args: [address], query: { enabled: !!address } });
+  
+  // NOVIDADE V7: Checar se o usuário tomou block do Admin
+  const { data: isBlocked } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isBlocked', args: [address], query: { enabled: !!address } });
+  
   const { data: bankBalance } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getAccountBalance', args: [address], query: { enabled: !!address } });
   
   const { data: withdrawFee } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getWithdrawFee' });
@@ -180,11 +184,11 @@ export default function Home() {
   // =========================================================
   // CALCULADORAS BLINDADAS CONTRA ERROS (BUG FIX)
   // =========================================================
-  const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : 0n;
-  const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : 0n;
+  const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : BigInt(0);
+  const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : BigInt(0);
 
-  const isDexApprovalNeeded = safeAmountDex > 0n && (tokenAllowance as bigint || 0n) < safeAmountDex;
-  const isAdminApprovalNeeded = safeAdminTokenAmount > 0n && (tokenAllowance as bigint || 0n) < safeAdminTokenAmount;
+  const isDexApprovalNeeded = safeAmountDex > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAmountDex;
+  const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
 
 
   // =========================================================================
@@ -196,7 +200,6 @@ export default function Home() {
           <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-600/20 rounded-full blur-[120px]"></div>
           <div className="z-10 flex flex-col items-center text-center p-8">
               <div className="mb-6 p-4 bg-white/5 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
-                  {/* TÍTULO NOVO DA LANDING PAGE AQUI 👇 */}
                   <h1 className="text-6xl font-black bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-600 bg-clip-text text-transparent tracking-tighter drop-shadow-[0_0_20px_rgba(56,189,248,0.4)] hover:scale-105 transition-transform cursor-default">
                       BANK <span className="text-white drop-shadow-none">PROXY</span>
                   </h1>
@@ -221,7 +224,6 @@ export default function Home() {
       {/* MENU LATERAL */}
       <aside className="w-72 bg-[#12161F] border-r border-gray-800/60 hidden lg:flex flex-col shadow-2xl z-20">
          <div className="h-24 flex items-center justify-center border-b border-gray-800/60">
-            {/* TÍTULO NOVO DO MENU LATERAL AQUI 👇 */}
             <h1 className="text-2xl font-black tracking-widest bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(56,189,248,0.3)] cursor-default">
                 BANK PROXY
             </h1>
@@ -270,7 +272,16 @@ export default function Home() {
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-transparent"></div>
                             <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2">🛡️ Verificação de Identidade</h3>
                             
-                            {isWhitelisted ? (
+                            {/* NOVA LOGICA V7: BLOCKED > WHITELISTED > NOVO */}
+                            {isBlocked ? (
+                                <div className="flex items-center gap-5 bg-red-500/10 p-6 rounded-2xl border border-red-500/30">
+                                    <div className="bg-red-500/20 p-4 rounded-full text-3xl shadow-[0_0_15px_rgba(239,68,68,0.3)]">🚫</div>
+                                    <div>
+                                        <p className="font-bold text-xl text-red-400 tracking-tight">Conta Suspensa</p>
+                                        <p className="text-sm text-red-300 mt-1">Sua conta foi bloqueada pela administração do banco. Todas as operações estão desativadas no momento.</p>
+                                    </div>
+                                </div>
+                            ) : isWhitelisted ? (
                                 <div className="flex items-center gap-5 bg-green-500/10 p-6 rounded-2xl border border-green-500/20">
                                     <div className="bg-green-500/20 p-4 rounded-full text-3xl shadow-[0_0_15px_rgba(34,197,94,0.3)]">✅</div>
                                     <div>
@@ -295,7 +306,8 @@ export default function Home() {
                             )}
                         </div>
 
-                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${!isWhitelisted ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
+                        {/* DESATIVA A TELA SE O USUÁRIO NÃO FOR VIP OU ESTIVER BLOQUEADO */}
+                        <div className={`grid grid-cols-1 md:grid-cols-2 gap-8 ${(!isWhitelisted || isBlocked) ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
                             
                             {/* SALDO DO BANCO */}
                             <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col justify-between">
@@ -322,7 +334,7 @@ export default function Home() {
                             {/* CÂMBIO RÁPIDO (DEX) */}
                             <section className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl relative flex flex-col justify-between">
                                 <div>
-                                    <div className="absolute top-4 right-4 bg-blue-600/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full border border-blue-500/30">DEX V6</div>
+                                    <div className="absolute top-4 right-4 bg-purple-600/20 text-purple-400 text-xs font-bold px-3 py-1 rounded-full border border-purple-500/30">V7 ACTIVE</div>
                                     <h3 className="text-gray-400 uppercase text-xs font-bold mb-4 tracking-widest">Câmbio Rápido</h3>
                                     
                                     <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800 flex flex-col gap-2 mb-6 mt-2">
@@ -350,7 +362,6 @@ export default function Home() {
                                             className="w-full p-4 rounded-xl bg-[#06080C] border border-gray-700 text-white outline-none focus:border-blue-500 text-center text-xl font-mono" 
                                         />
                                         
-                                        {/* A MÁGICA DA CONVERSÃO SUPER EXPLICATIVA */}
                                         <div className="flex flex-col px-2 text-[11px] font-medium min-h-[32px] gap-1 mt-1">
                                             {amountDex && !isNaN(Number(amountDex)) && Number(amountDex) > 0 && exchangeRate ? (
                                                 <>

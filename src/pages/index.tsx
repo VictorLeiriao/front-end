@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi';
 import { formatEther, parseGwei, parseEther } from 'viem';
-import bankAbi from '../abi/BankV7.json';
+import bankAbi from '../abi/BankV8.json';
 
 const CONTRACT_ADDRESS = '0x5f01cCFECe767EF5F72882F3D9F67274190eE2C7';
 
@@ -75,21 +75,15 @@ export default function Home() {
   const isAdmin = isConnected && address && contractOwner === address;
 
   const { data: isWhitelisted } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isWhitelisted', args: [address], query: { enabled: !!address } });
-  
-  // NOVIDADE V7: Checar se o usuário tomou block do Admin
   const { data: isBlocked } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isBlocked', args: [address], query: { enabled: !!address } });
-  
   const { data: bankBalance } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getAccountBalance', args: [address], query: { enabled: !!address } });
-  
   const { data: withdrawFee } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getWithdrawFee' });
   const { data: exchangeRate } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'feeExchange' });
   const { data: tokenStock } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getStockTokens' });
   const { data: dexPolLiquidity } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'liquidityPOL' });
-
   const { data: tokenAddress } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'tokenExchange' });
   const { data: userTokenBalance } = useReadContract({ address: tokenAddress as `0x${string}`, abi: erc20Abi, functionName: 'balanceOf', args: [address], query: { enabled: !!tokenAddress && !!address } });
 
-  // A MÁGICA: Lê o quanto o usuário já autorizou o banco a gastar!
   const { data: tokenAllowance } = useReadContract({
       address: tokenAddress as `0x${string}`,
       abi: erc20Abi,
@@ -127,7 +121,6 @@ export default function Home() {
     });
   }, [isPending, isConfirming, isConfirmed, writeError, hash]);
 
-  // FUNÇÃO UNIVERSAL PARA APROVAR TOKENS
   const handleApproveToken = (amountStr: string, context: string) => {
     if (!amountStr || isNaN(Number(amountStr))) return alert("Digite um valor válido!");
     writeContract({
@@ -182,13 +175,19 @@ export default function Home() {
 
 
   // =========================================================
-  // CALCULADORAS BLINDADAS CONTRA ERROS (BUG FIX)
+  // CALCULADORAS BLINDADAS CONTRA ERROS E UX DE TAXA
   // =========================================================
   const safeAmountDex = amountDex && !isNaN(Number(amountDex)) ? parseEther(amountDex) : BigInt(0);
   const safeAdminTokenAmount = adminForm.tokenAmount && !isNaN(Number(adminForm.tokenAmount)) ? parseEther(adminForm.tokenAmount) : BigInt(0);
 
   const isDexApprovalNeeded = safeAmountDex > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAmountDex;
   const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
+
+  // CÁLCULO DA TAXA PARA O USUÁRIO (V7)
+  const feePercentage = withdrawFee ? Number(withdrawFee as bigint) / 100 : 0;
+  const estimatedFeePOL = amountBank && !isNaN(Number(amountBank)) 
+      ? (Number(amountBank) * feePercentage) / 100 
+      : 0;
 
 
   // =========================================================================
@@ -221,7 +220,6 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-[#0B0E14] text-white font-sans overflow-hidden">
       
-      {/* MENU LATERAL */}
       <aside className="w-72 bg-[#12161F] border-r border-gray-800/60 hidden lg:flex flex-col shadow-2xl z-20">
          <div className="h-24 flex items-center justify-center border-b border-gray-800/60">
             <h1 className="text-2xl font-black tracking-widest bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent drop-shadow-[0_0_10px_rgba(56,189,248,0.3)] cursor-default">
@@ -272,7 +270,6 @@ export default function Home() {
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-transparent"></div>
                             <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-6 flex items-center gap-2">🛡️ Verificação de Identidade</h3>
                             
-                            {/* NOVA LOGICA V7: BLOCKED > WHITELISTED > NOVO */}
                             {isBlocked ? (
                                 <div className="flex items-center gap-5 bg-red-500/10 p-6 rounded-2xl border border-red-500/30">
                                     <div className="bg-red-500/20 p-4 rounded-full text-3xl shadow-[0_0_15px_rgba(239,68,68,0.3)]">🚫</div>
@@ -324,8 +321,12 @@ export default function Home() {
                                         <button onClick={handleWithdraw} disabled={isPending} className="flex-1 bg-transparent border border-gray-600 text-white p-4 rounded-xl font-bold hover:bg-gray-800 disabled:opacity-50">Sacar</button>
                                     </div>
                                     <div className="text-center pt-2">
-                                        <span className="text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full">
-                                            ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">{withdrawFee ? formatEther(withdrawFee as bigint) : '0.00'} POL</span>
+                                        {/* AQUI ESTÁ A ATUALIZAÇÃO VISUAL DA TAXA PARA O USUÁRIO 👇 */}
+                                        <span className="text-[11px] md:text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full whitespace-nowrap overflow-hidden text-ellipsis block">
+                                            ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">{feePercentage}%</span>
+                                            {estimatedFeePOL > 0 && (
+                                                <span className="text-gray-400 ml-1"> (Est. -{estimatedFeePOL.toFixed(4)} POL)</span>
+                                            )}
                                         </span>
                                     </div>
                                 </div>
@@ -366,10 +367,10 @@ export default function Home() {
                                             {amountDex && !isNaN(Number(amountDex)) && Number(amountDex) > 0 && exchangeRate ? (
                                                 <>
                                                     <span className="text-indigo-400">
-                                                        🟢 Ao Comprar: Paga <b>{amountDex} POL</b> ➔ Recebe <b>{(Number(amountDex) * Number(exchangeRate as bigint)).toLocaleString()} TKN</b>
+                                                        🟢 Paga <b>{amountDex} POL</b> ➔ Recebe <b>{(Number(amountDex) * Number(exchangeRate as bigint)).toLocaleString()} TKN</b>
                                                     </span>
                                                     <span className="text-pink-400">
-                                                        🔴 Ao Vender: Paga <b>{amountDex} TKN</b> ➔ Recebe <b>{(Number(amountDex) / Number(exchangeRate as bigint)).toFixed(4)} POL</b>
+                                                        🔴 Paga <b>{amountDex} TKN</b> ➔ Recebe <b>{(Number(amountDex) / Number(exchangeRate as bigint)).toFixed(4)} POL</b>
                                                     </span>
                                                 </>
                                             ) : (
@@ -381,7 +382,6 @@ export default function Home() {
                                     <div className="flex gap-4">
                                         <button onClick={handleBuyTokens} disabled={isPending} className="flex-1 bg-indigo-600/20 border border-indigo-500 text-indigo-300 p-4 rounded-xl font-bold hover:bg-indigo-600/30 disabled:opacity-50">Comprar</button>
                                         
-                                        {/* BOTÃO INTELIGENTE DE VENDER */}
                                         {isDexApprovalNeeded ? (
                                             <button onClick={() => handleApproveToken(amountDex, 'Vender TKN')} disabled={isPending} className="flex-1 bg-orange-600/20 border border-orange-500 text-orange-300 p-4 rounded-xl font-bold hover:bg-orange-600/30 transition disabled:opacity-50 shadow-[0_0_15px_rgba(249,115,22,0.1)]">
                                                 1º Aprovar
@@ -481,7 +481,6 @@ export default function Home() {
                                         <div className="flex gap-2 mt-1">
                                             <input type="number" placeholder="Qtd" className="w-20 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none" onChange={e => setAdminForm({...adminForm, tokenAmount: e.target.value})} />
                                             
-                                            {/* BOTÃO INTELIGENTE DE INJETAR LIQUIDEZ ADMIN */}
                                             {isAdminApprovalNeeded ? (
                                                 <button onClick={() => handleApproveToken(adminForm.tokenAmount, 'Injetar Liq TKN')} className="flex-1 bg-orange-600/20 text-orange-400 border border-orange-500/30 hover:bg-orange-600/40 rounded-lg font-bold text-sm">1º Aprovar</button>
                                             ) : (
@@ -498,16 +497,28 @@ export default function Home() {
                                 <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">💰 Cofre de Lucros</h3>
                                 <div className="mb-4 bg-[#06080C] p-4 rounded-xl border border-green-500/30 flex justify-between items-center">
                                     <span className="text-gray-400 text-sm">Lucro Acumulado:</span>
+                                    {/* MANTIDO FORMAT ETHER AQUI PQ O LUCRO AINDA É GUARDADO EM WEI NO CONTRATO */}
                                     <p className="text-2xl font-bold text-green-400">{totalFeesCollected ? formatEther(totalFeesCollected as bigint) : '0.00'} POL</p>
                                 </div>
                                 <div className="space-y-4">
                                     <button onClick={() => executeAdminTx('Sacar Lucros', 'withdrawFeeAdmin')} className="w-full bg-green-600/20 border border-green-500 hover:bg-green-600/40 text-green-400 p-3 rounded-xl font-bold">Sacar Lucros para a Carteira</button>
                                     <div className="pt-2 border-t border-gray-800/60">
-                                        <label className="text-xs text-gray-500">Alterar Taxa de Saque (Valor Fixo em POL)</label>
+                                        
+                                        {/* AQUI ESTÁ A LÓGICA DE CONVERSÃO PARA O ADMIN 👇 */}
+                                        <label className="text-xs text-gray-500">Alterar Taxa de Saque (%)</label>
+                                        <p className="text-[10px] text-gray-400 mb-1 leading-tight">
+                                            Digite o valor em porcentagem (ex: 1.5 para 1,5%). O sistema converte automaticamente para Basis Points (150) ao salvar.
+                                        </p>
                                         <div className="flex gap-2 mt-1">
-                                            <input type="number" placeholder="Ex: 0.1" className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500" onChange={e => setAdminForm({...adminForm, withdrawFee: e.target.value})} />
-                                            <button onClick={() => executeAdminTx('Atualizar Taxa', 'updateWithdrawFee', [parseEther(adminForm.withdrawFee || '0')])} className="bg-gray-800 hover:bg-gray-700 px-4 rounded-lg font-bold text-yellow-400">Salvar</button>
+                                            <input type="number" step="0.01" placeholder="Ex: 1.5" className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500" onChange={e => setAdminForm({...adminForm, withdrawFee: e.target.value})} />
+                                            <button onClick={() => {
+                                                if(!adminForm.withdrawFee) return alert("Digite uma taxa válida!");
+                                                // CONVERSÃO MÁGICA: Pega o número decimal, multiplica por 100 e arredonda pra virar Basis Point inteiro
+                                                const bpsValue = Math.floor(Number(adminForm.withdrawFee) * 100);
+                                                executeAdminTx('Atualizar Taxa', 'updateWithdrawFee', [BigInt(bpsValue)]);
+                                            }} className="bg-gray-800 hover:bg-gray-700 px-4 rounded-lg font-bold text-yellow-400">Salvar</button>
                                         </div>
+
                                     </div>
                                 </div>
                             </div>

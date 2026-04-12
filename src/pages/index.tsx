@@ -6,6 +6,23 @@ import bankAbi from '../abi/BankV8.json';
 
 const CONTRACT_ADDRESS = '0x5f01cCFECe767EF5F72882F3D9F67274190eE2C7';
 
+/** Contrato: taxa = valorSolicitado × BPS ÷ 10_000 (100 BPS = 1%, 10_000 BPS = 100%). */
+const BPS_DENOM = BigInt(10_000);
+
+function formatWithdrawFeePercent(bps: bigint): string {
+  const pct = Number(bps) / 100;
+  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(pct);
+}
+
+function parsePercentToBps(input: string): { bps: number; error?: string } {
+  const n = Number(String(input).trim().replace(',', '.'));
+  if (!Number.isFinite(n) || n < 0) return { bps: 0, error: 'Informe uma porcentagem válida (0 a 100).' };
+  if (n > 100) return { bps: 0, error: 'A taxa não pode ser maior que 100%.' };
+  const bps = Math.round(n * 100);
+  if (bps > 10_000) return { bps: 0, error: 'Valor acima do máximo permitido pelo contrato (10.000 BPS).' };
+  return { bps };
+}
+
 // TRADUTOR DO TOKEN ATUALIZADO COM "APPROVE" E "ALLOWANCE"
 const erc20Abi = [
   {
@@ -183,11 +200,20 @@ export default function Home() {
   const isDexApprovalNeeded = safeAmountDex > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAmountDex;
   const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
 
-  // CÁLCULO DA TAXA PARA O USUÁRIO (V7)
-  const feePercentage = withdrawFee ? Number(withdrawFee as bigint) / 100 : 0;
-  const estimatedFeePOL = amountBank && !isNaN(Number(amountBank)) 
-      ? (Number(amountBank) * feePercentage) / 100 
-      : 0;
+  // Taxa de saque em BPS → exibida como % real; estimativa igual à fórmula on-chain
+  const withdrawFeeBps = withdrawFee != null ? (withdrawFee as bigint) : null;
+  const withdrawFeePercentLabel =
+    withdrawFeeBps != null ? formatWithdrawFeePercent(withdrawFeeBps) : '—';
+  let estimatedFeeWei: bigint | null = null;
+  if (withdrawFeeBps != null && amountBank && !isNaN(Number(amountBank)) && Number(amountBank) > 0) {
+    try {
+      estimatedFeeWei = (parseEther(amountBank) * withdrawFeeBps) / BPS_DENOM;
+    } catch {
+      estimatedFeeWei = null;
+    }
+  }
+  const estimatedFeePOL =
+    estimatedFeeWei != null ? Number(formatEther(estimatedFeeWei)) : 0;
 
 
   // =========================================================================
@@ -323,7 +349,12 @@ export default function Home() {
                                     <div className="text-center pt-2">
                                         {/* AQUI ESTÁ A ATUALIZAÇÃO VISUAL DA TAXA PARA O USUÁRIO 👇 */}
                                         <span className="text-[11px] md:text-xs font-medium text-gray-500 bg-red-500/10 border border-red-500/20 px-3 py-1 rounded-full whitespace-nowrap overflow-hidden text-ellipsis block">
-                                            ⚠️ Taxa de Saque: <span className="text-red-400 font-bold">{feePercentage}%</span>
+                                            ⚠️ Taxa de Saque:{' '}
+                                            {withdrawFeeBps != null ? (
+                                              <span className="text-red-400 font-bold">{withdrawFeePercentLabel}%</span>
+                                            ) : (
+                                              <span className="text-red-400 font-bold">—</span>
+                                            )}
                                             {estimatedFeePOL > 0 && (
                                                 <span className="text-gray-400 ml-1"> (Est. -{estimatedFeePOL.toFixed(4)} POL)</span>
                                             )}
@@ -449,7 +480,10 @@ export default function Home() {
                                 <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">💱 Câmbio e Token</h3>
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="text-xs text-gray-500">Taxa de Câmbio (Multiplicador)</label>
+                                        <label className="text-xs text-gray-500">Taxa de Câmbio (multiplicador inteiro)</label>
+                                        <p className="text-[10px] text-gray-500 mb-1 leading-snug">
+                                            Não é porcentagem. É o fator da cotação: tokens recebidos ≈ POL enviado × este número; ao vender, POL ≈ TKN ÷ este número. Ex.: 100 ⇒ 1 POL compra 100 unidades do token (conforme decimais do ERC-20).
+                                        </p>
                                         <div className="flex gap-2 mt-1">
                                             <input type="number" placeholder="Ex: 100" className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500" onChange={e => setAdminForm({...adminForm, feeExchange: e.target.value})} />
                                             <button onClick={() => executeAdminTx('Atualizar Câmbio', 'updateFeeExchange', [BigInt(adminForm.feeExchange)])} className="bg-gray-800 hover:bg-gray-700 px-4 rounded-lg font-bold text-yellow-400">Salvar</button>
@@ -505,19 +539,29 @@ export default function Home() {
                                     <div className="pt-2 border-t border-gray-800/60">
                                         
                                         {/* AQUI ESTÁ A LÓGICA DE CONVERSÃO PARA O ADMIN 👇 */}
-                                        <label className="text-xs text-gray-500">Alterar Taxa de Saque (%)</label>
-                                        <p className="text-[10px] text-gray-400 mb-1 leading-tight">
-                                            Digite o valor em porcentagem (ex: 1.5 para 1,5%). O sistema converte automaticamente para Basis Points (150) ao salvar.
+                                        <label className="text-xs text-gray-500">Alterar Taxa de Saque (em % para o usuário final)</label>
+                                        <p className="text-[10px] text-gray-400 mb-1 leading-snug">
+                                            O contrato armazena <strong>basis points</strong> (BPS): 1% = 100 BPS, 0,5% = 50 BPS, máximo 10.000 BPS = 100%.
+                                            Você digita a porcentagem humana (ex.: <code className="text-gray-300">1</code> ou <code className="text-gray-300">0,75</code>); o app envia <code className="text-gray-300">porcentagem × 100</code> arredondado (ex.: 1% → 100 BPS).
                                         </p>
                                         <div className="flex gap-2 mt-1">
                                             <input type="number" step="0.01" placeholder="Ex: 1.5" className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500" onChange={e => setAdminForm({...adminForm, withdrawFee: e.target.value})} />
                                             <button onClick={() => {
-                                                if(!adminForm.withdrawFee) return alert("Digite uma taxa válida!");
-                                                // CONVERSÃO MÁGICA: Pega o número decimal, multiplica por 100 e arredonda pra virar Basis Point inteiro
-                                                const bpsValue = Math.floor(Number(adminForm.withdrawFee) * 100);
-                                                executeAdminTx('Atualizar Taxa', 'updateWithdrawFee', [BigInt(bpsValue)]);
+                                                if (!adminForm.withdrawFee) return alert("Digite uma taxa válida!");
+                                                const { bps, error } = parsePercentToBps(adminForm.withdrawFee);
+                                                if (error) return alert(error);
+                                                executeAdminTx('Atualizar Taxa', 'updateWithdrawFee', [BigInt(bps)]);
                                             }} className="bg-gray-800 hover:bg-gray-700 px-4 rounded-lg font-bold text-yellow-400">Salvar</button>
                                         </div>
+                                        {adminForm.withdrawFee && (() => {
+                                          const { bps, error } = parsePercentToBps(adminForm.withdrawFee);
+                                          if (error) return <p className="text-[10px] text-red-400 mt-1">{error}</p>;
+                                          return (
+                                            <p className="text-[10px] text-gray-500 mt-1 font-mono">
+                                              Prévia: envio ao contrato = {bps} BPS ({formatWithdrawFeePercent(BigInt(bps))}%)
+                                            </p>
+                                          );
+                                        })()}
 
                                     </div>
                                 </div>

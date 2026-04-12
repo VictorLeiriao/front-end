@@ -501,6 +501,24 @@ export default function Home() {
 
                             <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800">
                                 <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">💧 Liquidez do Banco</h3>
+                                <p className="text-[10px] text-gray-500 mb-3 leading-snug">
+                                    No contrato: <code className="text-gray-400">liquidityPOL</code> = POL da pool DEX (paga vendas de TKN);{' '}
+                                  <code className="text-gray-400">getStockTokens()</code> = estoque TKN (saldo do token no contrato).
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+                                    <div className="bg-[#06080C] p-4 rounded-xl border border-blue-500/25">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">POL na pool (liquidityPOL)</span>
+                                        <p className="text-xl font-mono font-bold text-blue-400">
+                                            {dexPolLiquidity != null ? Number(formatEther(dexPolLiquidity as bigint)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : '—'} <span className="text-sm text-gray-500 font-sans font-semibold">POL</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-[#06080C] p-4 rounded-xl border border-pink-500/25">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">TKN em estoque (getStockTokens)</span>
+                                        <p className="text-xl font-mono font-bold text-pink-400">
+                                            {tokenStock != null ? Number(formatEther(tokenStock as bigint)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : '—'} <span className="text-sm text-gray-500 font-sans font-semibold">TKN</span>
+                                        </p>
+                                    </div>
+                                </div>
                                 <div className="space-y-4">
                                     <div>
                                         <label className="text-xs text-gray-500">Injetar/Remover POL</label>

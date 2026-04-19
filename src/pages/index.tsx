@@ -9,6 +9,77 @@ const CONTRACT_ADDRESS = '0x5f01cCFECe767EF5F72882F3D9F67274190eE2C7';
 /** Contrato: taxa = valorSolicitado × BPS ÷ 10_000 (100 BPS = 1%, 10_000 BPS = 100%). */
 const BPS_DENOM = BigInt(10_000);
 
+// ABI extra para o Marketplace NFT (V9), mantendo o JSON do V8 como base.
+const nftMarketplaceAbi: any[] = [
+  {
+    inputs: [],
+    name: 'nextListingId',
+    outputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: '', type: 'uint256' }],
+    name: 'listings',
+    outputs: [
+      { internalType: 'address', name: 'collection', type: 'address' },
+      { internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+      { internalType: 'uint256', name: 'price', type: 'uint256' },
+      { internalType: 'bool', name: 'active', type: 'bool' },
+    ],
+    stateMutability: 'view',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: 'collection', type: 'address' },
+      { internalType: 'uint256', name: 'tokenId', type: 'uint256' },
+      { internalType: 'uint256', name: 'price', type: 'uint256' },
+    ],
+    name: 'listNft',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'id', type: 'uint256' }],
+    name: 'cancelListing',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [{ internalType: 'uint256', name: 'id', type: 'uint256' }],
+    name: 'buy',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+];
+
+const erc721Abi: any[] = [
+  {
+    inputs: [
+      { internalType: 'address', name: 'operator', type: 'address' },
+      { internalType: 'bool', name: 'approved', type: 'bool' },
+    ],
+    name: 'setApprovalForAll',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function',
+  },
+  {
+    inputs: [
+      { internalType: 'address', name: 'owner', type: 'address' },
+      { internalType: 'address', name: 'operator', type: 'address' },
+    ],
+    name: 'isApprovedForAll',
+    outputs: [{ internalType: 'bool', name: '', type: 'bool' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
+];
+
 function formatWithdrawFeePercent(bps: bigint): string {
   const pct = Number(bps) / 100;
   return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(pct);
@@ -62,6 +133,35 @@ type TxLog = {
   errorMessage?: string;
 };
 
+function AccountFlag({ address, kind, publicClient }: { address: string; kind: 'whitelist' | 'blocked'; publicClient: any }) {
+  const [value, setValue] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        if (!publicClient) return;
+        if (!address || !address.startsWith('0x') || address.length !== 42) return;
+        const fn = kind === 'whitelist' ? 'isWhitelisted' : 'isBlocked';
+        const v = await publicClient.readContract({
+          address: CONTRACT_ADDRESS,
+          abi: bankAbi.abi as any,
+          functionName: fn,
+          args: [address],
+        });
+        setValue(Boolean(v));
+      } catch (e) {
+        console.error(e);
+        setValue(null);
+      }
+    };
+    run();
+  }, [address, kind, publicClient]);
+
+  if (value === null) return <span className="text-gray-500">—</span>;
+  if (value) return <span className="text-red-400 font-bold">SIM</span>;
+  return <span className="text-green-400 font-bold">NÃO</span>;
+}
+
 export default function Home() {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
@@ -81,15 +181,31 @@ export default function Home() {
       polAmount: '',
       tokenAmount: '',
       withdrawFee: '',
-      userAccount: ''
+      userAccount: '',
+      nftCollection: '',
+      nftTokenId: '',
+      nftPricePol: '',
+      nftCancelId: '',
+      newOwner: '',
+      checkAccount: ''
   });
+
+  const [nftListings, setNftListings] = useState<
+    { id: bigint; collection: string; tokenId: bigint; price: bigint; active: boolean }[]
+  >([]);
+
+  const [watchlist, setWatchlist] = useState<string[]>([]);
 
   // =========================================================
   // 1. LEITURAS (READ)
   // =========================================================
   
   const { data: contractOwner } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'owner' });
-  const isAdmin = isConnected && address && contractOwner === address;
+  const isAdmin =
+    isConnected &&
+    Boolean(address) &&
+    Boolean(contractOwner) &&
+    String(contractOwner).toLowerCase() === String(address).toLowerCase();
 
   const { data: isWhitelisted } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isWhitelisted', args: [address], query: { enabled: !!address } });
   const { data: isBlocked } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isBlocked', args: [address], query: { enabled: !!address } });
@@ -111,6 +227,8 @@ export default function Home() {
 
   const { data: totalFeesCollected } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'getWithdrawFeeCollected', account: address });
   const { data: isPaused } = useReadContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName: 'isPaused' });
+
+  const { data: nextListingId } = useReadContract({ address: CONTRACT_ADDRESS, abi: nftMarketplaceAbi, functionName: 'nextListingId' });
 
   // =========================================================
   // 2. ESCRITAS E AUTORIZAÇÕES (WRITE) 
@@ -183,11 +301,41 @@ export default function Home() {
     setTxHistory(prev => [{ id: Date.now(), action: `Venda de ${amountDex} TKN`, status: 'Aguardando Assinatura' }, ...prev]);
   };
 
+  const handleTransferOwnership = () => {
+    if (!adminForm.newOwner || !adminForm.newOwner.startsWith('0x') || adminForm.newOwner.length !== 42) {
+      return alert("Informe um endereço válido (0x...).");
+    }
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: bankAbi.abi,
+      functionName: 'transferOwnership',
+      args: [adminForm.newOwner],
+      gas: BigInt(500000),
+      maxPriorityFeePerGas: parseGwei('30'),
+      maxFeePerGas: parseGwei('100'),
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Admin: Transferir ownership`, status: 'Aguardando Assinatura' }, ...prev]);
+  };
+
   const executeAdminTx = (actionName: string, functionName: string, args: any[] = [], value: bigint = BigInt(0)) => {
       try {
           writeContract({ address: CONTRACT_ADDRESS, abi: bankAbi.abi, functionName, args, value, gas: BigInt(500000), maxPriorityFeePerGas: parseGwei('30'), maxFeePerGas: parseGwei('100') });
           setTxHistory(prev => [{ id: Date.now(), action: `Admin: ${actionName}`, status: 'Aguardando Assinatura' }, ...prev]);
       } catch (error) { console.error(error); }
+  };
+
+  const handleBuyNft = (id: bigint, price: bigint) => {
+    writeContract({
+      address: CONTRACT_ADDRESS,
+      abi: nftMarketplaceAbi,
+      functionName: 'buy',
+      args: [id],
+      value: price,
+      gas: BigInt(700000),
+      maxPriorityFeePerGas: parseGwei('30'),
+      maxFeePerGas: parseGwei('100'),
+    });
+    setTxHistory(prev => [{ id: Date.now(), action: `Compra NFT (listing ${id.toString()})`, status: 'Aguardando Assinatura' }, ...prev]);
   };
 
 
@@ -201,7 +349,7 @@ export default function Home() {
   const isAdminApprovalNeeded = safeAdminTokenAmount > BigInt(0) && (tokenAllowance as bigint || BigInt(0)) < safeAdminTokenAmount;
 
   // Taxa de saque em BPS → exibida como % real; estimativa igual à fórmula on-chain
-  const withdrawFeeBps = withdrawFee != null ? (withdrawFee as bigint) : null;
+  const withdrawFeeBps = withdrawFee != null ? BigInt(withdrawFee as any) : null;
   const withdrawFeePercentLabel =
     withdrawFeeBps != null ? formatWithdrawFeePercent(withdrawFeeBps) : '—';
   let estimatedFeeWei: bigint | null = null;
@@ -214,6 +362,38 @@ export default function Home() {
   }
   const estimatedFeePOL =
     estimatedFeeWei != null ? Number(formatEther(estimatedFeeWei)) : 0;
+
+  // =========================================================
+  // MARKETPLACE: carregar listagens via publicClient (evita hooks dinâmicos)
+  // =========================================================
+  useEffect(() => {
+    const run = async () => {
+      try {
+        if (!publicClient) return;
+        const next = (nextListingId as bigint | undefined) ?? BigInt(0);
+        if (next === BigInt(0)) {
+          setNftListings([]);
+          return;
+        }
+
+        const items: { id: bigint; collection: string; tokenId: bigint; price: bigint; active: boolean }[] = [];
+        for (let i = BigInt(0); i < next; i++) {
+          const l = await publicClient.readContract({
+            address: CONTRACT_ADDRESS,
+            abi: nftMarketplaceAbi as any,
+            functionName: 'listings',
+            args: [i],
+          });
+          const [collection, tokenId, price, active] = l as any;
+          items.push({ id: i, collection, tokenId, price, active: Boolean(active) });
+        }
+        setNftListings(items);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    run();
+  }, [publicClient, nextListingId]);
 
 
   // =========================================================================
@@ -259,6 +439,10 @@ export default function Home() {
             <button onClick={() => setActiveTab('cofres')} className={`w-full flex items-center gap-4 p-4 rounded-xl font-semibold transition-all ${activeTab === 'cofres' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
                 🏦 <span>Meus Cofres</span>
             </button>
+
+            <button onClick={() => setActiveTab('nft')} className={`w-full flex items-center gap-4 p-4 rounded-xl font-semibold transition-all ${activeTab === 'nft' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20' : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>
+                🖼️ <span>NFT MARKET PLACE</span>
+            </button>
             
             {isAdmin && (
                 <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center gap-4 p-4 rounded-xl font-bold transition-all shadow-[0_0_15px_rgba(234,179,8,0.1)] ${activeTab === 'admin' ? 'text-yellow-400 bg-yellow-500/10 border border-yellow-500/30' : 'text-yellow-600/60 hover:text-yellow-400 hover:bg-yellow-500/5 border border-transparent'}`}>
@@ -278,7 +462,13 @@ export default function Home() {
         
         <header className="flex justify-between items-center p-6 border-b border-gray-800/60 bg-[#0B0E14]/80 backdrop-blur-lg sticky top-0 z-10 shadow-md">
             <h2 className="text-2xl font-bold tracking-tight">
-                {activeTab === 'dashboard' ? 'Visão Geral' : activeTab === 'cofres' ? 'Seus Ativos e Cofres' : 'Centro de Comando (Dono)'}
+                {activeTab === 'dashboard'
+                  ? 'Visão Geral'
+                  : activeTab === 'cofres'
+                    ? 'Seus Ativos e Cofres'
+                    : activeTab === 'nft'
+                      ? 'NFT Market Place'
+                      : 'Centro de Comando (Dono)'}
             </h2>
             <ConnectButton />
         </header>
@@ -463,7 +653,56 @@ export default function Home() {
                 )}
 
                 {/* ============================== */}
-                {/* ABA 3: PAINEL ADMIN */}
+                {/* ABA 3: NFT MARKET PLACE */}
+                {/* ============================== */}
+                {activeTab === 'nft' && (
+                    <div className="space-y-8 animate-fade-in">
+                        <div className="bg-[#151A22]/80 backdrop-blur p-8 rounded-3xl shadow-xl border border-gray-800/60 relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-transparent"></div>
+                            <h3 className="text-gray-400 uppercase tracking-widest text-xs font-bold mb-3 flex items-center gap-2">🧩 Marketplace on-chain (escrow no proxy)</h3>
+                            <p className="text-sm text-gray-400 leading-relaxed">
+                                Qualquer carteira conectada pode ver as listagens. <span className="text-white font-semibold">Somente contas cadastradas (KYC/Whitelist) conseguem comprar.</span>
+                            </p>
+                            {!isWhitelisted && (
+                              <div className="mt-4 bg-yellow-500/10 p-4 rounded-xl border border-yellow-500/20 text-yellow-300 text-sm flex gap-3">
+                                  <span>⚠️</span><p>Você ainda não está cadastrado. Vá na aba <b>Dashboard</b> e conclua o registro para poder comprar.</p>
+                              </div>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {nftListings.filter(l => l.active).length === 0 ? (
+                            <div className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl md:col-span-2">
+                              <p className="text-gray-400">Nenhuma listagem ativa no momento.</p>
+                            </div>
+                          ) : (
+                            nftListings.filter(l => l.active).map((l) => (
+                              <div key={l.id.toString()} className="bg-[#11151F] p-8 rounded-3xl border border-gray-800 shadow-xl flex flex-col gap-4">
+                                <div className="flex items-center justify-between">
+                                  <h4 className="font-bold tracking-tight">Listing #{l.id.toString()}</h4>
+                                  <span className="text-[11px] text-purple-300 bg-purple-600/15 border border-purple-500/25 px-3 py-1 rounded-full">ATIVA</span>
+                                </div>
+                                <div className="space-y-1 text-sm text-gray-400">
+                                  <p><span className="text-gray-500">Coleção:</span> <span className="text-white font-mono text-xs break-all">{l.collection}</span></p>
+                                  <p><span className="text-gray-500">TokenId:</span> <span className="text-white font-mono">{l.tokenId.toString()}</span></p>
+                                  <p><span className="text-gray-500">Preço:</span> <span className="text-white font-bold">{Number(formatEther(l.price)).toFixed(4)} POL</span></p>
+                                </div>
+                                <button
+                                  onClick={() => handleBuyNft(l.id, l.price)}
+                                  disabled={!Boolean(isWhitelisted) || isPending || isConfirming}
+                                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-4 rounded-xl disabled:opacity-50"
+                                >
+                                  {!isWhitelisted ? 'Somente cadastrado pode comprar' : isPending ? '✍️ Assine na sua Carteira...' : isConfirming ? '⏳ Confirmando compra...' : 'Comprar'}
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ============================== */}
+                {/* ABA 4: PAINEL ADMIN */}
                 {/* ============================== */}
                 {activeTab === 'admin' && isAdmin && (
                     <div className="space-y-6 animate-fade-in">
@@ -475,6 +714,156 @@ export default function Home() {
                         )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800 md:col-span-2">
+                                <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">📌 Informações atuais do Contrato</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">Proxy (Bank) address</span>
+                                        <p className="text-sm font-mono text-white break-all">{CONTRACT_ADDRESS}</p>
+                                    </div>
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">Owner atual</span>
+                                        <p className="text-sm font-mono text-white break-all">{contractOwner ? String(contractOwner) : '—'}</p>
+                                    </div>
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">Token ERC20 atual (tokenExchange)</span>
+                                        <p className="text-sm font-mono text-white break-all">{tokenAddress ? String(tokenAddress) : '—'}</p>
+                                    </div>
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">Conversão atual (feeExchange)</span>
+                                        <p className="text-sm text-white">
+                                          {exchangeRate != null ? (
+                                            <>
+                                              <span className="font-bold text-blue-400">1 POL</span> ={' '}
+                                              <span className="font-bold text-pink-400">{String(exchangeRate)}</span> TKN
+                                            </>
+                                          ) : '—'}
+                                        </p>
+                                    </div>
+                                    <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800 md:col-span-2">
+                                        <span className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1">Taxa atual de saque (withdrawFee)</span>
+                                        <p className="text-sm text-white">
+                                          {withdrawFeeBps != null ? (
+                                            <>
+                                              <span className="font-bold text-red-400">{withdrawFeePercentLabel}%</span>{' '}
+                                              <span className="text-gray-500">( {withdrawFeeBps.toString()} BPS )</span>
+                                            </>
+                                          ) : '—'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800 md:col-span-2">
+                                <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">🖼️ NFT MARKET PLACE (Admin)</h3>
+                                <p className="text-[11px] text-gray-500 mb-4 leading-snug">
+                                    Fluxo: <b>1)</b> na coleção ERC721 execute <code className="text-gray-300">setApprovalForAll(proxy, true)</code> para o proxy <span className="font-mono text-gray-300">{CONTRACT_ADDRESS}</span>. <b>2)</b> liste abaixo (o NFT vai para escrow no contrato). <b>3)</b> compradores cadastrados pagam em POL (msg.value).
+                                </p>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                  <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                    <label className="text-xs text-gray-500">Coleção (ERC721)</label>
+                                    <input
+                                      placeholder="0x..."
+                                      className="w-full mt-2 bg-[#0B0E14] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500 text-xs"
+                                      onChange={(e) => setAdminForm({ ...adminForm, nftCollection: e.target.value })}
+                                      value={adminForm.nftCollection}
+                                    />
+                                    <div className="flex gap-2 mt-3">
+                                      <button
+                                        onClick={() => {
+                                          if (!adminForm.nftCollection) return alert('Informe a coleção.');
+                                          writeContract({
+                                            address: adminForm.nftCollection as `0x${string}`,
+                                            abi: erc721Abi as any,
+                                            functionName: 'setApprovalForAll',
+                                            args: [CONTRACT_ADDRESS, true],
+                                            gas: BigInt(300000),
+                                            maxPriorityFeePerGas: parseGwei('30'),
+                                            maxFeePerGas: parseGwei('100'),
+                                          });
+                                          setTxHistory(prev => [{ id: Date.now(), action: `Admin: Aprovar coleção ERC721`, status: 'Aguardando Assinatura' }, ...prev]);
+                                        }}
+                                        className="flex-1 bg-orange-600/20 border border-orange-500 text-orange-300 p-3 rounded-xl font-bold hover:bg-orange-600/30 disabled:opacity-50"
+                                        disabled={isPending || isConfirming}
+                                      >
+                                        1º Aprovar (setApprovalForAll)
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                    <label className="text-xs text-gray-500">TokenId</label>
+                                    <input
+                                      type="number"
+                                      placeholder="Ex: 0"
+                                      className="w-full mt-2 bg-[#0B0E14] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500"
+                                      onChange={(e) => setAdminForm({ ...adminForm, nftTokenId: e.target.value })}
+                                      value={adminForm.nftTokenId}
+                                    />
+                                    <label className="text-xs text-gray-500 mt-3 block">Preço (POL)</label>
+                                    <input
+                                      type="number"
+                                      placeholder="Ex: 1.0"
+                                      className="w-full mt-2 bg-[#0B0E14] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500"
+                                      onChange={(e) => setAdminForm({ ...adminForm, nftPricePol: e.target.value })}
+                                      value={adminForm.nftPricePol}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        if (!adminForm.nftCollection) return alert('Informe a coleção.');
+                                        if (!adminForm.nftTokenId) return alert('Informe o tokenId.');
+                                        if (!adminForm.nftPricePol || isNaN(Number(adminForm.nftPricePol)) || Number(adminForm.nftPricePol) <= 0) return alert('Informe um preço válido.');
+                                        writeContract({
+                                          address: CONTRACT_ADDRESS,
+                                          abi: nftMarketplaceAbi,
+                                          functionName: 'listNft',
+                                          args: [adminForm.nftCollection, BigInt(adminForm.nftTokenId), parseEther(adminForm.nftPricePol)],
+                                          gas: BigInt(900000),
+                                          maxPriorityFeePerGas: parseGwei('30'),
+                                          maxFeePerGas: parseGwei('100'),
+                                        });
+                                        setTxHistory(prev => [{ id: Date.now(), action: `Admin: Listar NFT (tokenId ${adminForm.nftTokenId})`, status: 'Aguardando Assinatura' }, ...prev]);
+                                      }}
+                                      className="w-full mt-4 bg-yellow-600/20 border border-yellow-500/30 hover:bg-yellow-600/30 text-yellow-300 p-3 rounded-xl font-bold"
+                                      disabled={isPending || isConfirming}
+                                    >
+                                      2º Listar (escrow)
+                                    </button>
+                                  </div>
+
+                                  <div className="bg-[#06080C] p-4 rounded-2xl border border-gray-800">
+                                    <label className="text-xs text-gray-500">Cancelar listing (id)</label>
+                                    <input
+                                      type="number"
+                                      placeholder="Ex: 0"
+                                      className="w-full mt-2 bg-[#0B0E14] p-3 rounded-lg border border-gray-700 outline-none focus:border-yellow-500"
+                                      onChange={(e) => setAdminForm({ ...adminForm, nftCancelId: e.target.value })}
+                                      value={adminForm.nftCancelId}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        if (!adminForm.nftCancelId) return alert('Informe o id.');
+                                        writeContract({
+                                          address: CONTRACT_ADDRESS,
+                                          abi: nftMarketplaceAbi,
+                                          functionName: 'cancelListing',
+                                          args: [BigInt(adminForm.nftCancelId)],
+                                          gas: BigInt(700000),
+                                          maxPriorityFeePerGas: parseGwei('30'),
+                                          maxFeePerGas: parseGwei('100'),
+                                        });
+                                        setTxHistory(prev => [{ id: Date.now(), action: `Admin: Cancelar listing ${adminForm.nftCancelId}`, status: 'Aguardando Assinatura' }, ...prev]);
+                                      }}
+                                      className="w-full mt-4 bg-red-600/20 border border-red-500/30 hover:bg-red-600/30 text-red-300 p-3 rounded-xl font-bold"
+                                      disabled={isPending || isConfirming}
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </div>
+                                </div>
+                            </div>
                             
                             <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800">
                                 <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">💱 Câmbio e Token</h3>
@@ -599,11 +988,84 @@ export default function Home() {
                                                 </div>
                                             </div>
                                         </div>
+
+                                        <div className="pt-4 border-t border-gray-800/60">
+                                            <label className="text-xs text-gray-500">Consultar status (whitelist / bloqueio) + watchlist</label>
+                                            <div className="flex gap-2 mt-2">
+                                                <input
+                                                    placeholder="Endereço 0x..."
+                                                    className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none text-xs"
+                                                    value={adminForm.checkAccount}
+                                                    onChange={(e) => setAdminForm({ ...adminForm, checkAccount: e.target.value })}
+                                                />
+                                                <button
+                                                    onClick={() => {
+                                                        const a = adminForm.checkAccount?.trim();
+                                                        if (!a || !a.startsWith('0x') || a.length !== 42) return alert('Informe um endereço válido.');
+                                                        setWatchlist((prev) => (prev.includes(a) ? prev : [a, ...prev].slice(0, 12)));
+                                                    }}
+                                                    className="bg-gray-800 hover:bg-gray-700 px-4 rounded-lg font-bold text-yellow-400"
+                                                >
+                                                    Add Watch
+                                                </button>
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 mt-2">
+                                                Como <code className="text-gray-300">isWhitelisted</code> e <code className="text-gray-300">isBlocked</code> são <code className="text-gray-300">mapping</code>,
+                                                não dá para listar todos os endereços só pelo front. Aqui você consulta por endereço e mantém uma watchlist.
+                                            </p>
+
+                                            {watchlist.length > 0 && (
+                                                <div className="mt-3 space-y-2">
+                                                    {watchlist.map((a) => (
+                                                        <div key={a} className="bg-[#0B0E14] p-3 rounded-xl border border-gray-800 flex items-center justify-between gap-3">
+                                                            <div className="min-w-0">
+                                                                <p className="text-[11px] text-gray-500">Conta</p>
+                                                                <p className="text-xs font-mono text-white break-all">{a}</p>
+                                                                <div className="flex gap-3 mt-2 text-[11px]">
+                                                                    <span className="text-gray-400">Whitelist:</span>
+                                                                    <AccountFlag address={a} kind="whitelist" publicClient={publicClient} />
+                                                                    <span className="text-gray-400 ml-2">Bloqueado:</span>
+                                                                    <AccountFlag address={a} kind="blocked" publicClient={publicClient} />
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => setWatchlist((prev) => prev.filter((x) => x !== a))}
+                                                                className="shrink-0 bg-red-600/20 border border-red-500/30 hover:bg-red-600/30 text-red-300 px-3 py-2 rounded-lg font-bold text-xs"
+                                                            >
+                                                                Remover
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="pt-4 mt-4">
                                     <button onClick={() => executeAdminTx('PAUSAR BANCO', 'breakContract')} className="w-full bg-red-600 hover:bg-red-700 text-white p-3 rounded-xl font-black tracking-widest shadow-lg shadow-red-900/50" disabled={Boolean(isPaused)}>
                                         🚨 BOTÃO DE PÂNICO (PAUSAR)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-[#151A22]/90 p-6 rounded-3xl border border-gray-800 md:col-span-2">
+                                <h3 className="text-yellow-500 font-bold mb-4 border-b border-gray-800 pb-2">👑 Transferir Dono (Ownership)</h3>
+                                <p className="text-[10px] text-gray-500 mb-3 leading-snug">
+                                    Isso chama <code className="text-gray-300">transferOwnership(newOwner)</code>. Após transferir, o painel admin some para quem não for mais o owner.
+                                </p>
+                                <div className="flex flex-col md:flex-row gap-2">
+                                    <input
+                                        placeholder="Novo owner (0x...)"
+                                        className="flex-1 bg-[#06080C] p-3 rounded-lg border border-gray-700 outline-none text-xs"
+                                        value={adminForm.newOwner}
+                                        onChange={(e) => setAdminForm({ ...adminForm, newOwner: e.target.value })}
+                                    />
+                                    <button
+                                        onClick={handleTransferOwnership}
+                                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg font-black"
+                                        disabled={isPending || isConfirming}
+                                    >
+                                        Transferir
                                     </button>
                                 </div>
                             </div>
